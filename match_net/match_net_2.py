@@ -33,6 +33,9 @@ class MatchingNet(tf.keras.Model):
         # batch_train_embeddings = tf.cond(self.cos_distance == tf.constant(True, dtype=tf.bool), lambda: tf.nn.l2_normalize(support_set_embeddings, axis=1),
         #                                  lambda:  batch_train_embeddings)
 
+        if self.cos_distance:
+            support_set_embeddings = tf.nn.l2_normalize(support_set_embeddings, axis=1)
+            batch_train_embeddings = tf.nn.l2_normalize(batch_train_embeddings, axis=1)
         # reshape support set
         embed_dim = tf.shape(support_set_embeddings)[1]
         support_set_embeddings = tf.expand_dims(support_set_embeddings, axis=0)
