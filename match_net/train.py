@@ -161,7 +161,11 @@ if __name__ == "__main__":
                 predictions = match_net(dev_batch, embedded_support_set)
                 correct += np.sum(tf.argmax(predictions, axis=1) == label_batch)
                 total += len(label_batch)
-            print("accuracy is {} for task {}".format(correct / total, task_id))
+            if total == 0:
+                accuracy = 0
+            else:
+                accuracy = correct / total
+            print("accuracy is {} for task {}".format(accuracy, task_id))
 
     results = list()
     for task_id in task_ids:
@@ -175,7 +179,12 @@ if __name__ == "__main__":
             predictions = match_net(dev_batch, embedded_support_set)
             correct += np.sum(tf.argmax(predictions, axis=1) == label_batch)
             total += len(label_batch)
-        results.append((task_id, correct/total))
+        if total == 0:
+            accuracy = 0
+        else:
+            accuracy = correct / total
+
+        results.append((task_id, accuracy))
 
     with open(os.path.join(output_dir, "statistics.txt"), "w", encoding="utf-8") as file:
         file.writelines([result[0] + "\t" + str(result[1]) + "\n" for result in results])
