@@ -71,7 +71,6 @@ class MatchingNet(tf.keras.Model):
         self.x_dim = x_dim
         self.y_dim = y_dim
 
-
     @tf.function
     def call(
         self,

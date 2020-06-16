@@ -4,6 +4,7 @@ import os
 import tensorflow as tf
 from nltk.tokenize import word_tokenize
 
+
 class DataSet:
     def __init__(self, path, token_map, label2idx=None, sequence_len=100):
         self.id = os.path.basename(path).replace(".train", "").replace(".dev", "")
@@ -19,8 +20,12 @@ class DataSet:
         self.idx2label = {idx: lab for lab, idx in self.label2idx.items()}
         # store the encoded version of everything
         self.data = self.tokenize(self.data)
-        self.encoded_data, self.encoded_label = self.encode_text_and_label(self.data, self.label)
-        self.elabel2edata = self.learnlabel2datamap(self.encoded_data, self.encoded_label)
+        self.encoded_data, self.encoded_label = self.encode_text_and_label(
+            self.data, self.label
+        )
+        self.elabel2edata = self.learnlabel2datamap(
+            self.encoded_data, self.encoded_label
+        )
 
     def load_text(self, path):
         data = list()
@@ -36,7 +41,7 @@ class DataSet:
 
         return data, label
 
-    def tokenize(self, data, tokenizer= word_tokenize):#lambda x: x.split(" ")):
+    def tokenize(self, data, tokenizer=word_tokenize):  # lambda x: x.split(" ")):
         data = list(map(tokenizer, data))
         return data
 
@@ -54,8 +59,21 @@ class DataSet:
             if lab not in self.label2idx:
                 continue
             encoded_label.append(self.label2idx[lab])
-            encoded_text.append(np.array([self.word_map.get(tokens[i], self.word_map["<unk>"]) if len(tokens) > i else self.word_map["<pad>"] for i in range(self.sequence_len)], dtype=np.int))
-        return np.array(encoded_text, dtype=np.int), np.array(encoded_label, dtype=np.int)
+            encoded_text.append(
+                np.array(
+                    [
+                        self.word_map.get(tokens[i], self.word_map["<unk>"])
+                        if len(tokens) > i
+                        else self.word_map["<pad>"]
+                        for i in range(self.sequence_len)
+                    ],
+                    dtype=np.int,
+                )
+            )
+        return (
+            np.array(encoded_text, dtype=np.int),
+            np.array(encoded_label, dtype=np.int),
+        )
 
     def learnlabel2datamap(self, encoded_text, encoded_label):
         mapping = dict()
