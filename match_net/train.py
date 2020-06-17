@@ -188,4 +188,3 @@ if __name__ == "__main__":
 
     with open(os.path.join(output_dir, "statistics.txt"), "w", encoding="utf-8") as file:
         file.writelines([result[0] + "\t" + str(result[1]) + "\n" for result in results])
-    # tf.saved_model.save(match_net, os.path.join(output_dir, "model_files"))
