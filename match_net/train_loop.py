@@ -41,7 +41,13 @@ def argument_parsing():
         "--output_dir", help="where to store the output", type=str, default="./"
     )
     parser.add_argument(
-        "--sample_size", help="how many points to sample", type=int, default=10
+        "--sample_size", help="how many points to sample", type=int, default=2
+    )
+    parser.add_argument(
+        "--linear_layer", help="how many linear layers to use", type=int, default=2
+    )
+    parser.add_argument(
+        "--filter_size", help="number of filters to use for cnn, if linear_layer, it will also be used for linear_layer_dim", type=int, default=200
     )
     return parser.parse_args()
 
@@ -58,6 +64,9 @@ if __name__ == "__main__":
     retrain = args.retrain
     sample_size = args.sample_size
     output_dir = args.output_dir
+    filter_size = args.filter_size
+    linear_layer = args.linear_layer
+
 
     def get_glove(embedding_path, specials=("<unk>", "<pad>")):
         embedding_matrix = list()
@@ -107,7 +116,7 @@ if __name__ == "__main__":
             sequence_len=100,
         )
 
-    match_net = MatchingNet(pre_trained_embedding=embed_matrix, cos_distance=cosine, retrain=retrain)
+    match_net = MatchingNet(pre_trained_embedding=embed_matrix, cos_distance=cosine, retrain=retrain, linear_layer=linear_layer, filter_size=filter_size)
     supp_manager = SuppManager(model=match_net, data_set_dict=train_data_sets)
     # print information about the data
     num_batch_total = 0
@@ -120,11 +129,28 @@ if __name__ == "__main__":
 
     optimizer = tf.keras.optimizers.Adam(lr=lr, clipnorm=0.5)
     loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+
     train_loss = tf.keras.metrics.Mean(name="train_loss")
     train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name="train_accuracy")
+    c_loss = tf.keras.metrics.Mean(name="c_loss")
+    #train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name="train_accuracy")
+    #
+    # @tf.function
+    # def cnn_train_step(train_set, labels, model, loss_object):
+    #     with tf.GradientTape() as tape:
+    #         predictions = model.classify(train_set)
+    #         tf.print(labels)
+    #         tf.print(tf.argmax(predictions, axis=1))
+    #         loss = loss_object(labels, predictions)
+    #     gradients = tape.gradient(loss, model.trainable_variables)
+    #     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+    #
+    #     train_loss(loss)
+    #     train_accuracy(labels, predictions)
+
 
     @tf.function
-    def train_step(train_set, supp_embed, labels, model, loss_object):
+    def match_net_train_step(train_set, supp_embed  , labels, model, loss_object):
         with tf.GradientTape() as tape:
             predictions = model(train_set, supp_embed)
             tf.print(labels)
@@ -132,11 +158,46 @@ if __name__ == "__main__":
             loss = loss_object(labels, predictions)
         gradients = tape.gradient(loss, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-
         train_loss(loss)
         train_accuracy(labels, predictions)
-
     task_ids = list(train_data_sets.keys())
+    temperature = .2
+
+    # #@tf.function
+    # def constrastive_loss(positive, negative):
+    #
+    #
+    #     return constrastive_loss
+
+    @tf.function
+    def constrastive_learn_train_step(constra_id1, constra_id2, model):
+        with tf.GradientTape() as tape:
+            positive, negative = model.constrastive_learn(constra_id1, constra_id2)
+            nom = (positive / temperature)
+            denom = (tf.reduce_sum(negative, axis=1) / temperature)
+            constrastive_loss = -1 * tf.reduce_sum(nom / denom, axis=0)
+
+        gradients = tape.gradient(constrastive_loss , model.trainable_variables)
+        optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+        c_loss(constrastive_loss)
+        # train_accuracy(labels, predictions)
+
+    @tf.function
+    def multi_Task_train_step(train_set, supp_embed,labels, constra_id1, constra_id2, model, loss_object):
+        with tf.GradientTape() as tape:
+            positive, negative = model.constrastive_learn(constra_id1, constra_id2)
+            nom = (positive / temperature)
+            denom = (tf.reduce_sum(negative, axis=1) / temperature)
+            constrastive_loss = -1 * tf.reduce_sum(nom / denom, axis=0)
+            predictions = model(train_set, supp_embed)
+            tf.print(labels)
+            tf.print(tf.argmax(predictions, axis=1))
+            entropy_loss = loss_object(labels, predictions)
+            loss = constrastive_loss + entropy_loss
+        gradients = tape.gradient(loss , model.trainable_variables)
+        optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+        c_loss(constrastive_loss)
+
     j = 0
     for i in range(epochs):
         np.random.shuffle(task_ids)
@@ -145,11 +206,15 @@ if __name__ == "__main__":
             train_iter.shuffle()
             for train_batch, label_batch in train_iter.generate(batch_size=batch_size):
                 supp_embed = supp_manager.sample_avg_support_set(task_id, sample_size=sample_size)
-                train_step(train_batch, supp_embed, label_batch, match_net, loss_object)
+                # match_net_train_step(train_batch, supp_embed , label_batch, match_net, loss_object)
+                constra_id1, constra_id2 = supp_manager.sample_constrastive_set_id(task_id)
+                #supp_embed_id2 = supp_manager.sample_support_set_id(task_id, sample_size=1)
+                #constrastive_learn_train_step(constra_id1, constra_id2, match_net)
+                multi_Task_train_step(train_batch, supp_embed,label_batch, constra_id1, constra_id2, match_net, loss_object)
                 j += 1
             template = "Epoch {}, Loss: {}, Accuracy: {}"
             print(
-                template.format(i + 1, train_loss.result(), train_accuracy.result() * 100)
+                template.format(i + 1, c_loss.result(), train_accuracy.result() * 100)
             )
 
             if j % 20 == 0:
@@ -167,7 +232,6 @@ if __name__ == "__main__":
                 else:
                     accuracy = correct / total
                 print("accuracy is {} for task {}".format(accuracy, task_id))
-
 
     results = list()
     for task_id in task_ids:

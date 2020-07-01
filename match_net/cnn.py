@@ -32,9 +32,13 @@ class CnnTextEncoder(tf.keras.layers.Layer):
         kernel_size=3,
         pretrained_embedding=None,
         retrain=False,
+        linear_layer=0,
+        final_projection_dim =30,
+        y_dimension = 0
     ):
         super(CnnTextEncoder, self).__init__()
         self.model = Sequential()
+        self.y_dimension = y_dimension
 
         # we start off with an efficient embedding layer which maps
         # our vocab indices into embedding_dims dimensions
@@ -50,8 +54,16 @@ class CnnTextEncoder(tf.keras.layers.Layer):
         )
         self.model.add(Activation("relu"))
         self.model.add(GlobalMaxPooling1D())
-
+        if linear_layer > 0:
+            for i in range(linear_layer):
+                self.model.add(Dense(filters, activation="relu"))
+                self.model.add(Dropout(rate=0.1))
+        #self.model.add(Dense(final_projection_dim, activation="relu"))
     @tf.function
     def call(self, X):
         return self.model(X)
+
+    @tf.function
+    def classify(self, X):
+        return self.model.add(Dense(self.y_dimension, activation=tf.keras.activations.softmax))
 

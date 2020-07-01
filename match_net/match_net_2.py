@@ -7,11 +7,12 @@ np.random.seed(2)
 
 
 class MatchingNet(tf.keras.Model):
-    def __init__(self, pre_trained_embedding=None, cos_distance=True, retrain=False):
+    def __init__(self, pre_trained_embedding=None, cos_distance=True, retrain=False, linear_layer=0, filter_size=200, y_dim=0):
         super(MatchingNet, self).__init__()
         self.cos_distance = cos_distance
-        self.encoder = CnnTextEncoder(pretrained_embedding=pre_trained_embedding, retrain=retrain)
-
+        self.encoder = CnnTextEncoder(pretrained_embedding=pre_trained_embedding, retrain=retrain, filters=filter_size, linear_layer=linear_layer)
+        if y_dim > 0:
+            self.linear_layer = tf.keras.layers.Dense(y_dim, activation="softmax")
     @tf.function
     def get_hidden(self, encoded_token_idxes):
         return self.encoder(encoded_token_idxes)
@@ -55,4 +56,21 @@ class MatchingNet(tf.keras.Model):
             batch_target_embeddings * support_set_embeddings, axis=1
         )  # batchsize * label size
 
+
         return logits
+
+    @tf.function
+    def constrastive_learn(self, support_set_ids, support_set_ids2, training=None, mask=None):
+
+        support_set_embeddings = self.get_hidden(support_set_ids)
+        support_set_embeddings2 = self.get_hidden(support_set_ids2)
+        similarity_matrix = tf.matmul(support_set_embeddings, tf.transpose(support_set_embeddings2))
+        positive = tf.linalg.diag_part(similarity_matrix)
+        negative = similarity_matrix - positive
+        return positive, negative
+
+
+    @tf.function
+    def classify(self, X):
+        result = self.encoder(X)
+        return self.linear_layer(result)
