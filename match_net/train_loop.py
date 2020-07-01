@@ -49,6 +49,12 @@ def argument_parsing():
     parser.add_argument(
         "--filter_size", help="number of filters to use for cnn, if linear_layer, it will also be used for linear_layer_dim", type=int, default=200
     )
+    parser.add_argument(
+        "--temperature", help="temperature of c loss", type=float, default=0.2
+    )
+    parser.add_argument(
+        "--constrast_weight", help="temperature of c loss", type=float, default=0.2
+    )
     return parser.parse_args()
 
 
@@ -66,7 +72,8 @@ if __name__ == "__main__":
     output_dir = args.output_dir
     filter_size = args.filter_size
     linear_layer = args.linear_layer
-
+    temperature = args.temperature
+    contrast_weight = args.constrast_weight
 
     def get_glove(embedding_path, specials=("<unk>", "<pad>")):
         embedding_matrix = list()
@@ -132,25 +139,9 @@ if __name__ == "__main__":
 
     train_loss = tf.keras.metrics.Mean(name="train_loss")
     train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name="train_accuracy")
-    c_loss = tf.keras.metrics.Mean(name="c_loss")
-    #train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name="train_accuracy")
-    #
-    # @tf.function
-    # def cnn_train_step(train_set, labels, model, loss_object):
-    #     with tf.GradientTape() as tape:
-    #         predictions = model.classify(train_set)
-    #         tf.print(labels)
-    #         tf.print(tf.argmax(predictions, axis=1))
-    #         loss = loss_object(labels, predictions)
-    #     gradients = tape.gradient(loss, model.trainable_variables)
-    #     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-    #
-    #     train_loss(loss)
-    #     train_accuracy(labels, predictions)
-
 
     @tf.function
-    def match_net_train_step(train_set, supp_embed  , labels, model, loss_object):
+    def match_net_train_step(train_set, supp_embed, labels, model, loss_object):
         with tf.GradientTape() as tape:
             predictions = model(train_set, supp_embed)
             tf.print(labels)
@@ -161,13 +152,6 @@ if __name__ == "__main__":
         train_loss(loss)
         train_accuracy(labels, predictions)
     task_ids = list(train_data_sets.keys())
-    temperature = .2
-
-    # #@tf.function
-    # def constrastive_loss(positive, negative):
-    #
-    #
-    #     return constrastive_loss
 
     @tf.function
     def constrastive_learn_train_step(constra_id1, constra_id2, model):
@@ -179,24 +163,29 @@ if __name__ == "__main__":
 
         gradients = tape.gradient(constrastive_loss , model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-        c_loss(constrastive_loss)
+        train_loss(constrastive_loss)
         # train_accuracy(labels, predictions)
+
+
+    def constrastive_loss(positive, negative):
+        nom = (positive / temperature)
+        denom = (tf.reduce_sum(negative, axis=1) / temperature)
+        constrastive_loss = -1 * tf.reduce_sum(nom / denom, axis=0)
+        return constrastive_loss
 
     @tf.function
     def multi_Task_train_step(train_set, supp_embed,labels, constra_id1, constra_id2, model, loss_object):
         with tf.GradientTape() as tape:
             positive, negative = model.constrastive_learn(constra_id1, constra_id2)
-            nom = (positive / temperature)
-            denom = (tf.reduce_sum(negative, axis=1) / temperature)
-            constrastive_loss = -1 * tf.reduce_sum(nom / denom, axis=0)
+            c_loss = constrastive_loss(positive, negative)
             predictions = model(train_set, supp_embed)
             tf.print(labels)
             tf.print(tf.argmax(predictions, axis=1))
             entropy_loss = loss_object(labels, predictions)
-            loss = constrastive_loss + entropy_loss
+            loss = c_loss*contrast_weight + entropy_loss
         gradients = tape.gradient(loss , model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-        c_loss(constrastive_loss)
+        train_loss(loss)
 
     j = 0
     for i in range(epochs):
@@ -214,7 +203,7 @@ if __name__ == "__main__":
                 j += 1
             template = "Epoch {}, Loss: {}, Accuracy: {}"
             print(
-                template.format(i + 1, c_loss.result(), train_accuracy.result() * 100)
+                template.format(i + 1, train_loss.result(), train_accuracy.result() * 100)
             )
 
             if j % 20 == 0:
@@ -252,5 +241,5 @@ if __name__ == "__main__":
 
         results.append((task_id, accuracy))
 
-    with open(os.path.join(output_dir, "statistics.txt"), "w", encoding="utf-8") as file:
+    with open(os.path.join(output_dir, "statistics.txt"), "a", encoding="utf-8") as file:
         file.writelines([result[0] + "\t" + str(result[1]) + "\n" for result in results])
